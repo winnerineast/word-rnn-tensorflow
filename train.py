@@ -14,6 +14,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_dir', type=str, default='data/tinyshakespeare',
                        help='data directory containing input.txt')
+    parser.add_argument('--log_dir', type=str, default='logs',
+                       help='directory containing tensorboard logs')
     parser.add_argument('--save_dir', type=str, default='save',
                        help='directory to store checkpointed models')
     parser.add_argument('--rnn_size', type=int, default=256,
@@ -36,6 +38,8 @@ def main():
                        help='learning rate')
     parser.add_argument('--decay_rate', type=float, default=0.97,
                        help='decay rate for rmsprop')
+    parser.add_argument('--gpu_mem', type=float, default=0.666,
+                       help='% of gpu memory to be allocated to this process. Default is 66.6%')
     parser.add_argument('--init_from', type=str, default=None,
                        help="""continue training from saved model at this path. Path must contain files saved by previous training process:
                             'config.pkl'        : configuration;
@@ -54,7 +58,7 @@ def train(args):
     # check compatibility if training is continued from previously saved model
     if args.init_from is not None:
         # check if all necessary files exist
-        assert os.path.isdir(args.init_from)," %s must be a a path" % args.init_from
+        assert os.path.isdir(args.init_from)," %s must be a path" % args.init_from
         assert os.path.isfile(os.path.join(args.init_from,"config.pkl")),"config.pkl file does not exist in path %s"%args.init_from
         assert os.path.isfile(os.path.join(args.init_from,"words_vocab.pkl")),"words_vocab.pkl.pkl file does not exist in path %s" % args.init_from
         ckpt = tf.train.get_checkpoint_state(args.init_from)
@@ -71,8 +75,8 @@ def train(args):
         # open saved vocab/dict and check if vocabs/dicts are compatible
         with open(os.path.join(args.init_from, 'words_vocab.pkl'), 'rb') as f:
             saved_words, saved_vocab = cPickle.load(f)
-        assert saved_words==data_loader.words, "Data and loaded model disagreee on word set!"
-        assert saved_vocab==data_loader.vocab, "Data and loaded model disagreee on dictionary mappings!"
+        assert saved_words==data_loader.words, "Data and loaded model disagree on word set!"
+        assert saved_vocab==data_loader.vocab, "Data and loaded model disagree on dictionary mappings!"
 
     with open(os.path.join(args.save_dir, 'config.pkl'), 'wb') as f:
         cPickle.dump(args, f)
@@ -81,31 +85,50 @@ def train(args):
 
     model = Model(args)
 
-    with tf.Session() as sess:
-        tf.initialize_all_variables().run()
-        saver = tf.train.Saver(tf.all_variables())
+    merged = tf.summary.merge_all()
+    train_writer = tf.summary.FileWriter(args.log_dir)
+    gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=args.gpu_mem)
+
+    with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
+        train_writer.add_graph(sess.graph)
+        tf.global_variables_initializer().run()
+        saver = tf.train.Saver(tf.global_variables())
         # restore model
         if args.init_from is not None:
             saver.restore(sess, ckpt.model_checkpoint_path)
-        for e in range(args.num_epochs):
+        for e in range(model.epoch_pointer.eval(), args.num_epochs):
             sess.run(tf.assign(model.lr, args.learning_rate * (args.decay_rate ** e)))
             data_loader.reset_batch_pointer()
             state = sess.run(model.initial_state)
-            for b in range(data_loader.num_batches):
+            speed = 0
+            if args.init_from is None:
+                assign_op = model.batch_pointer.assign(0)
+                sess.run(assign_op)
+                assign_op = model.epoch_pointer.assign(e)
+                sess.run(assign_op)
+            if args.init_from is not None:
+                data_loader.pointer = model.batch_pointer.eval()
+                args.init_from = None
+            for b in range(data_loader.pointer, data_loader.num_batches):
                 start = time.time()
                 x, y = data_loader.next_batch()
-                feed = {model.input_data: x, model.targets: y, model.initial_state: state}
-                train_loss, state, _ = sess.run([model.cost, model.final_state, model.train_op], feed)
-                end = time.time()
-                print("{}/{} (epoch {}), train_loss = {:.3f}, time/batch = {:.3f}" \
-                    .format(e * data_loader.num_batches + b,
-                            args.num_epochs * data_loader.num_batches,
-                            e, train_loss, end - start))
+                feed = {model.input_data: x, model.targets: y, model.initial_state: state,
+                        model.batch_time: speed}
+                summary, train_loss, state, _, _ = sess.run([merged, model.cost, model.final_state,
+                                                             model.train_op, model.inc_batch_pointer_op], feed)
+                train_writer.add_summary(summary, e * data_loader.num_batches + b)
+                speed = time.time() - start
+                if (e * data_loader.num_batches + b) % args.batch_size == 0:
+                    print("{}/{} (epoch {}), train_loss = {:.3f}, time/batch = {:.3f}" \
+                        .format(e * data_loader.num_batches + b,
+                                args.num_epochs * data_loader.num_batches,
+                                e, train_loss, speed))
                 if (e * data_loader.num_batches + b) % args.save_every == 0 \
                         or (e==args.num_epochs-1 and b == data_loader.num_batches-1): # save for the last result
                     checkpoint_path = os.path.join(args.save_dir, 'model.ckpt')
                     saver.save(sess, checkpoint_path, global_step = e * data_loader.num_batches + b)
                     print("model saved to {}".format(checkpoint_path))
+        train_writer.close()
 
 if __name__ == '__main__':
     main()
