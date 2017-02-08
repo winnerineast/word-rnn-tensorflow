@@ -1,12 +1,10 @@
-# word-rnn-tensorflow
-[![Build Status](https://travis-ci.org/hunkim/word-rnn-tensorflow.svg?branch=master)](https://travis-ci.org/hunkim/word-rnn-tensorflow)
+# word-rnn-tensorflow for text generator
 
-Multi-layer Recurrent Neural Networks (LSTM, RNN) for word-level language models in Python using TensorFlow.
-
-Mostly reused code from https://github.com/sherjilozair/char-rnn-tensorflow which was inspired from Andrej Karpathy's [char-rnn](https://github.com/karpathy/char-rnn).
+Multi-layer Recurrent Neural Networks (LSTM, RNN) for word-level language models in Python using TensorFlow. Mostly reused code from https://github.com/sherjilozair/char-rnn-tensorflow which was inspired from Andrej Karpathy's [char-rnn](https://github.com/karpathy/char-rnn). and This code is derived from [hunkim](https://github.com/hunkim/word-rnn-tensorflow) and added more features for text generation.
 
 # Requirements
-- [Tensorflow](http://www.tensorflow.org)
+- [Tensorflow](http://www.tensorflow.org) v0.12 or above
+- Python 3 (I target on version 3.5 or above only) and **Python 2 is not supported.**
 
 # Basic Usage
 To train with default parameters on the tinyshakespeare corpus, run:
@@ -69,10 +67,6 @@ And six nor's mighty wind, I fairs, if?
 Messenger:
 My lank, nobles arms;
 ```
-# Projects
-If you have any project using this word-rnn, please let us know. I'll list up your project here.
-
-- http://bot.wpoem.com/ (Simple poem generator in Korean)
  
 
 # Contribution
